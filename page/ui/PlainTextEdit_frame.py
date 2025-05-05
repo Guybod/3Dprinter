@@ -7,7 +7,6 @@ class PlainTextEditFrame(BaseFrame):
 
     def __init__(self):
         super().__init__()
-        self.log_text = None
         self.setup_ui()
 
     def init_ui(self):
