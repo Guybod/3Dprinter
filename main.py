@@ -10,6 +10,7 @@ class MainForm(QMainWindow):
     def __init__(self):
         super().__init__()
         self.ui = MainApp()  # 创建 Page 对象
+        self.ui.setFixedSize(800, 600)
         self.setCentralWidget(self.ui)
 
 

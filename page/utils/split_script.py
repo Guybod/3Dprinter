@@ -1,120 +1,105 @@
 import time
-
 import rtde_control
 import rtde_receive
 from threading import Thread
+from PySide6.QtCore import QObject, Signal
 
-speed_ms = 0.02
-# robot加速度
-accel_mss = 3.0
-# robot交融半径m
-blend_radius_m = 0.001
+class ScriptExecutor:
+    def __init__(self, robot_ip, script_path, speed_ms=0.02, accel_mss=3.0, blend_radius_m=0.001, on_script_parsed=None):
+        self.ROBOT_IP = robot_ip
+        self.script_path = script_path
+        self.speed_ms = speed_ms
+        self.accel_mss = accel_mss
+        self.blend_radius_m = blend_radius_m
+        self.signal = True
+        self.now_position = []
 
-signal = True
+        self.rtde_c = rtde_control.RTDEControlInterface(self.ROBOT_IP)
+        self.rtde_r = rtde_receive.RTDEReceiveInterface(self.ROBOT_IP)
 
-now_position = []
+        self.thread = Thread(target=self.print_position, daemon=True)
+        self.parse_thread = None
+        self.on_script_parsed = on_script_parsed
 
-ROBOT_IP = '192.168.1.50'
+        self.signals = self.Signals()  # 初始化信号
+        self.progress_thread = None  # 新增进度监控线程
 
-def split_script(script_path):
-    # 用于存储最终结果的字典，键为递增数字，值为包含移动指令、参数和挤出机值的列表
-    movement_dict = {}
-    # 用于记录Extruder后面的值，初始化为0
-    extruder_value = 0
-    # 用于生成递增的数字键，初始化为1
-    index = 1
-    movepath =[]
+    class Signals(QObject):
+        log_message = Signal(str)
+        operation_complete = Signal()
 
-    with open(script_path, 'r') as file:
-        # 读取文件的所有行
-        lines = file.readlines()
-        for i in range(len(lines)):
-            # 去除每行两端的空白字符
-            line = lines[i].strip()
-            if line.startswith('Extruder'):
-                # 提取Extruder括号内的值并转换为浮点数，赋值给extruder_value
-                extruder_value = float(line.split('(')[1].split(')')[0])
-            elif line.startswith('movej') or line.startswith('movel'):
-                move_type = line.split('(')[0]
-                # 提取movej或movel括号内的参数内容
-                for i in line.split('[')[1].split(']')[0].split(','):
-                    movepath.append(float(i))
-                move_parameter_0 = line.split('],')[1].split(')')[0].split(',')[0]
-                move_parameter_1 = line.split('],')[1].split(')')[0].split(',')[1]
-                move_parameter_2 = line.split('],')[1].split(')')[0].split(',')[2]
-                move_parameter_3 = line.split('],')[1].split(')')[0].split(',')[3]
-                if len(movepath) == 6:
-                    movement_dict[index] = [move_type, movepath, move_parameter_0, move_parameter_1, move_parameter_2, move_parameter_3, extruder_value]
-                    movepath = []
-                index += 1
-                extruder_value = 0
-            elif line.startswith('speed_ms'):
-                continue
-    return movement_dict
-
-def print_position():
-    global signal
-    global now_position
-    while signal:
-        now_position = rtde_r.getActualTCPPose()
-        print(rtde_r.getTargetTCPPose())
-        time.sleep(0.05)  # 模拟耗时操作
-
-
-if __name__ == "__main__":
-    movement_sites = split_script('script.txt')
-
-    speed_ = None
-    accel_ = None
-    options = None
-
-    rtde_c = rtde_control.RTDEControlInterface(ROBOT_IP)
-    rtde_r = rtde_receive.RTDEReceiveInterface(ROBOT_IP)
-
-    thread = Thread(target=print_position)
-    thread.daemon = True
-    thread.start()
-
-
-    path = rtde_control.Path()
-
-    if rtde_c.isConnected():
-        print("机械臂已经连接！")
-
-        for key, value in movement_sites.items():
-            # print(key, value)
-            pose = value[1]  # 当前位姿 [x, y, z, rx, ry, rz]
-
-            pose.append(speed_ms)
-            pose.append(accel_mss)
-
-            if value[4] == 'blend_radius_m':
-                pose.append(blend_radius_m)
-            else:
-                pose.append(blend_radius_m)
-
-            entry = rtde_control.PathEntry(rtde_control.PathEntry.MoveL, rtde_control.PathEntry.PositionTcpPose, pose)
-            path.addEntry(entry)
-
-    #   rtde_c.moveL(pose,speed_ms,accel_mss, asynchronous=True)
-        rtde_c.moveL([0.009757, -0.460243, 0.121700, -0.000000, 3.141593, -0.000000], speed_ms, accel_mss)
-
-        rtde_c.movePath(path, asynchronous=True)
-
-
-
+    def monitor_progress(self):
         Data = 0
-        while signal:
-            data = rtde_c.getAsyncOperationProgress()
+        while self.signal:
+            data = self.rtde_c.getAsyncOperationProgress()
             if Data != data:
-                # extruder("G1 E10 F300")
-                print(data)
+                msg = f"当前进度: {data}"
+                self.signals.log_message.emit(msg)
                 Data = data
             if data < 0:
-                signal = False
-                thread.join()
+                self.signal = False
+                self.signals.log_message.emit("脚本执行完成")
+                self.signals.operation_complete.emit()
+                break
+            time.sleep(0.1)  # 控制频率避免 CPU 占用过高
 
-    time.sleep(1)
-    new_position = now_position
-    new_position[2] = new_position[2] + 0.05
-    rtde_c.moveL(new_position, speed_ms, accel_mss)
+
+
+    def print_position(self):
+        while self.signal:
+            try:
+                self.now_position = self.rtde_r.getActualTCPPose()
+                print(f"Current Position: {self.now_position}")
+                time.sleep(0.05)
+            except Exception as e:
+                print(f"Position read error: {e}")
+                break
+
+    def parse_script(self):
+        movement_dict = {}
+        extruder_value = 0
+        index = 1
+        movepath = []
+
+        with open(self.script_path, 'r') as file:
+            lines = file.readlines()
+            for line in lines:
+                line = line.strip()
+                if line.startswith('Extruder'):
+                    extruder_value = float(line.split('(')[1].split(')')[0])
+                elif line.startswith(('movej', 'movel')):
+                    move_type = line.split('(')[0]
+                    coords = line.split('[')[1].split(']')[0].split(',')
+                    movepath = [float(c) for c in coords]
+
+                    params = line.split('],')[1].split(')')[0].split(',')
+                    if len(movepath) == 6:
+                        movement_dict[index] = [move_type, movepath, *params, extruder_value]
+                        movepath = []
+                        index += 1
+                        extruder_value = 0
+        return movement_dict
+
+    def run(self):
+        if not self.rtde_c.isConnected():
+            raise ConnectionError("无法连接到机械臂")
+
+        print("机械臂已连接！")
+
+        # 启动解析线程
+        self.parse_thread = Thread(target=self.run_parse_in_thread, daemon=True)
+        self.parse_thread.start()
+
+        # 可以在这里先启动打印位置线程，或者等 parse 完成后启动
+        self.thread.start()
+
+        # 启动进度监控线程
+        self.progress_thread = Thread(target=self.monitor_progress, daemon=True)
+        self.progress_thread.start()
+    def run_parse_in_thread(self):
+        try:
+            movement_dict = self.parse_script()
+            if self.on_script_parsed:
+                self.on_script_parsed(movement_dict)  # 解析完成后调用回调
+        except Exception as e:
+            print(f"解析脚本失败: {e}")
