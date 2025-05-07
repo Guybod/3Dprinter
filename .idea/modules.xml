@@ -2,7 +2,7 @@
 <project version="4">
   <component name="ProjectModuleManager">
     <modules>
-      <module fileurl="file://$PROJECT_DIR$/.idea/3D打印机.iml" filepath="$PROJECT_DIR$/.idea/3D打印机.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/3Dprinter.iml" filepath="$PROJECT_DIR$/.idea/3Dprinter.iml" />
     </modules>
   </component>
 </project>

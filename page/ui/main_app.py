@@ -7,7 +7,6 @@ from page.action.TemperatureExtruderAction import TemperatureExtruderAction
 from page.action.TemperatureHeaterBedAction import TemperatureHeaterBedAction
 from page.action.TemperatureWorker import TemperatureWorker
 from page.action.plainTextEditAction import PlainTextEditAction
-from page.ui.menu_frame import MenuFrame
 
 
 class MainApp(QMainWindow):
