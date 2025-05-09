@@ -36,11 +36,15 @@ class TempCollectorThread(QThread):
            'Connection': 'keep-alive'
         }
 
-        response = requests.request("GET", url, headers=headers, data=payload)
+        try:
+            response = requests.request("GET", url, headers=headers, data=payload)
 
-        data = response.json()
+            data = response.json()
 
-        extruder_temperatures = data["result"]["extruder"]["temperatures"]
-        header_bed_temperatures = data["result"]["heater_bed"]["temperatures"]
+            extruder_temperatures = data["result"]["extruder"]["temperatures"]
+            header_bed_temperatures = data["result"]["heater_bed"]["temperatures"]
 
-        return [extruder_temperatures[-1],header_bed_temperatures[-1]]
+            return [extruder_temperatures[-1],header_bed_temperatures[-1]]
+        except Exception as e:
+            print(e)
+            return [0,0]
